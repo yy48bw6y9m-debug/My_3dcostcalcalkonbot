@@ -1,119 +1,114 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>ALKON 3D Calc</title>
-  <style>
-    :root {
-      --bg: #0f172a;
-      --card: #1e293b;
-      --accent: #10b981;
-      --text: #f8fafc;
-      --muted: #94a3b8;
-      --border: #334155;
-    }
-    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 0; }
-    body { background: var(--bg); color: var(--text); padding: 20px; display: flex; justify-content: center; }
-    .container { width: 100%; max-width: 440px; }
-    header { text-align: center; margin-bottom: 24px; padding-top: 10px; }
-    h1 { font-size: 22px; font-weight: 700; letter-spacing: 0.5px; }
-    .subtitle { color: var(--muted); font-size: 13px; margin-top: 4px; }
-    .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 20px; margin-bottom: 20px; }
-    .field { margin-bottom: 16px; }
-    label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
-    input { width: 100%; background: #0f172a; border: 1px solid var(--border); border-radius: 10px; color: #fff; font-size: 16px; padding: 12px; outline: none; }
-    input:focus { border-color: var(--accent); }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .result-box { background: #022c22; border: 1px solid var(--accent); border-radius: 14px; padding: 16px; margin-top: 8px; }
-    .res-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; color: #cbd5e1; }
-    .res-row.total { border-top: 1px solid rgba(16, 185, 129, 0.3); padding-top: 10px; margin-top: 10px; font-size: 18px; font-weight: 700; color: #fff; }
-    .tiers { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; text-align: center; }
-    .tier-card { background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 10px; padding: 10px 4px; }
-    .tier-title { font-size: 11px; color: var(--muted); }
-    .tier-val { font-size: 15px; font-weight: 700; color: var(--accent); margin-top: 4px; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <header>
-      <h1>ALKON 3D CALC</h1>
-      <div class="subtitle">Калькулятор себестоимости печати</div>
-    </header>
+import os
+import asyncio
+from aiohttp import web
+from aiogram import Bot, Dispatcher, F
+from aiogram.filters import CommandStart, Command
+from aiogram.types import Message
 
-    <div class="card">
-      <div class="field">
-        <label>Цена катушки (₽/кг)</label>
-        <input type="number" id="spool" value="1400" oninput="recalc()">
-      </div>
-      <div class="grid">
-        <div class="field">
-          <label>Вес детали (г)</label>
-          <input type="number" id="weight" value="100" oninput="recalc()">
-        </div>
-        <div class="field">
-          <label>Время печати (ч)</label>
-          <input type="number" id="time" step="0.1" value="4" oninput="recalc()">
-        </div>
-      </div>
-      <div class="field">
-        <label>Постобработка (минут)</label>
-        <input type="number" id="post" value="0" oninput="recalc()">
-      </div>
-    </div>
+BOT_TOKEN = "8668317945:AAGnp69pgaiZRvCUlnFxdUAvxf1S1RsKBh0"
 
-    <div class="card">
-      <h2 style="font-size: 16px; margin-bottom: 12px;">Итоги расчета</h2>
-      <div class="res-row"><span>🧵 Пластик (+5% брак):</span><span id="cPlastic">0 ₽</span></div>
-      <div class="res-row"><span>⚡ Электричество:</span><span id="cElec">0 ₽</span></div>
-      <div class="res-row"><span>⚙️ Амортизация принтера:</span><span id="cDeprec">0 ₽</span></div>
-      <div class="res-row"><span>🛠 Постобработка:</span><span id="cLabor">0 ₽</span></div>
-      <div class="res-row total"><span>Себестоимость:</span><span id="cTotal" style="color: #34d399;">0 ₽</span></div>
+CONFIG = {
+    "power_w": 200.0,              # Мощность: 200 Вт
+    "electricity_rate": 5.5,       # Тариф: 5.5 ₽/кВт⋅ч
+    "printer_cost": 68000.0,       # Стоимость оборудования: 68 000 ₽
+    "lifespan_hours": 3500.0,      # Ресурс: 3500 ч
+    "defect_rate_percent": 5.0,    # Брак / кайма: 5%
+    "operator_rate_hour": 500.0    # Постобработка: 500 ₽/час
+}
 
-      <div class="tiers">
-        <div class="tier-card">
-          <div class="tier-title">x2.0 (100%)</div>
-          <div class="tier-val" id="t2">0 ₽</div>
-        </div>
-        <div class="tier-card">
-          <div class="tier-title">x2.5 (150%)</div>
-          <div class="tier-val" id="t25">0 ₽</div>
-        </div>
-        <div class="tier-card">
-          <div class="tier-title">x3.0 (200%)</div>
-          <div class="tier-val" id="t3">0 ₽</div>
-        </div>
-      </div>
-    </div>
-  </div>
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
 
-  <script>
-    const CONFIG = { powerW: 150, rate: 5.5, pCost: 65000, pLife: 3500, defect: 0.05, laborHour: 500 };
-    function recalc() {
-      const spool = parseFloat(document.getElementById('spool').value) || 0;
-      const weight = parseFloat(document.getElementById('weight').value) || 0;
-      const hours = parseFloat(document.getElementById('time').value) || 0;
-      const post = parseFloat(document.getElementById('post').value) || 0;
+def calculate(spool_price: float, weight_g: float, hours: float, post_mins: float = 0.0) -> str:
+    plastic_cost = (weight_g / 1000.0) * spool_price * (1.0 + CONFIG["defect_rate_percent"] / 100.0)
+    kwh = (CONFIG["power_w"] / 1000.0) * hours
+    elec_cost = kwh * CONFIG["electricity_rate"]
+    deprec_cost = (CONFIG["printer_cost"] / CONFIG["lifespan_hours"]) * hours
+    labor_cost = (post_mins / 60.0) * CONFIG["operator_rate_hour"]
+    
+    total_cost = plastic_cost + elec_cost + deprec_cost + labor_cost
 
-      const pCost = (weight / 1000) * spool * (1 + CONFIG.defect);
-      const eCost = (CONFIG.powerW / 1000) * hours * CONFIG.rate;
-      const dCost = (CONFIG.pCost / CONFIG.pLife) * hours;
-      const lCost = (post / 60) * CONFIG.laborHour;
-      const total = pCost + eCost + dCost + lCost;
+    return (
+        f"📊 <b>Результат расчета:</b>\n\n"
+        f"• Катушка: <code>{int(spool_price)} ₽/кг</code>\n"
+        f"• Вес: <code>{weight_g:.1f} г</code>\n"
+        f"• Время печати: <code>{hours:.1f} ч</code>\n"
+        f"• Постобработка: <code>{int(post_mins)} мин</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🧵 Пластик (+{int(CONFIG['defect_rate_percent'])}% брак): <code>{plastic_cost:.2f} ₽</code>\n"
+        f"⚡ Свет ({kwh:.2f} кВт⋅ч @ 200Вт): <code>{elec_cost:.2f} ₽</code>\n"
+        f"⚙️ Амортизация (68 000 ₽): <code>{deprec_cost:.2f} ₽</code>\n"
+        f"🛠 Постобработка: <code>{labor_cost:.2f} ₽</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"💵 <b>Себестоимость:</b> <b>{total_cost:.2f} ₽</b>\n\n"
+        f"🏷 <b>Цены продажи с наценкой:</b>\n"
+        f"• Наценка 100% (x2.0): <b>{total_cost * 2:.2f} ₽</b> <i>(прибыль {total_cost:.2f} ₽)</i>\n"
+        f"• Наценка 150% (x2.5): <b>{total_cost * 2.5:.2f} ₽</b> <i>(прибыль {total_cost * 1.5:.2f} ₽)</i>\n"
+        f"• Наценка 200% (x3.0): <b>{total_cost * 3:.2f} ₽</b> <i>(прибыль {total_cost * 2:.2f} ₽)</i>"
+    )
 
-      document.getElementById('cPlastic').innerText = pCost.toFixed(2) + ' ₽';
-      document.getElementById('cElec').innerText = eCost.toFixed(2) + ' ₽';
-      document.getElementById('cDeprec').innerText = dCost.toFixed(2) + ' ₽';
-      document.getElementById('cLabor').innerText = lCost.toFixed(2) + ' ₽';
-      document.getElementById('cTotal').innerText = total.toFixed(2) + ' ₽';
+@dp.message(CommandStart())
+async def cmd_start(message: Message):
+    await message.answer(
+        "👋 <b>Калькулятор себестоимости 3D-печати</b>\n\n"
+        "Отправьте данные через пробел в формате:\n"
+        "<code>цена_катушки вес время [постобработка]</code>\n\n"
+        "<b>Пример:</b> <code>1200 85 3.5</code>",
+        parse_mode="HTML"
+    )
 
-      document.getElementById('t2').innerText = (total * 2).toFixed(0) + ' ₽';
-      document.getElementById('t25').innerText = (total * 2.5).toFixed(0) + ' ₽';
-      document.getElementById('t3').innerText = (total * 3).toFixed(0) + ' ₽';
-    }
-    recalc();
-  </script>
-</body>
-</html>
+@dp.message(Command("settings"))
+async def cmd_settings(message: Message):
+    await message.answer(
+        f"⚙️ <b>Параметры оборудования:</b>\n"
+        f"• Свет: {CONFIG['electricity_rate']} ₽/кВт⋅ч\n"
+        f"• Мощность: {CONFIG['power_w']} Вт\n"
+        f"• Стоимость оборудования: {CONFIG['printer_cost']} ₽\n"
+        f"• Ресурс: {CONFIG['lifespan_hours']} ч\n"
+        f"• Постобработка: {CONFIG['operator_rate_hour']} ₽/час"
+    )
+
+@dp.message(F.text)
+async def handle_calc_text(message: Message):
+    text = message.text.replace(",", ".").strip()
+    parts = text.split()
+    
+    if len(parts) in (3, 4):
+        try:
+            spool_price = float(parts[0])
+            weight_g = float(parts[1])
+            hours = float(parts[2])
+            post_mins = float(parts[3]) if len(parts) == 4 else 0.0
+
+            if spool_price <= 0 or weight_g <= 0 or hours <= 0 or post_mins < 0:
+                await message.answer("⚠️ Значения должны быть больше нуля.")
+                return
+
+            res = calculate(spool_price, weight_g, hours, post_mins)
+            await message.answer(res, parse_mode="HTML")
+            return
+        except ValueError:
+            pass
+
+    await message.answer(
+        "⚠️ Отправьте числа через пробел:\n<code>цена_катушки вес время [минуты]</code>",
+        parse_mode="HTML"
+    )
+
+async def handle_ping(request):
+    return web.Response(text="OK")
+
+async def main():
+    app = web.Application()
+    app.router.add_get("/", handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
