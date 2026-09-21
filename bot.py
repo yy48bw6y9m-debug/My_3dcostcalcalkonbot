@@ -13,6 +13,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
+# Вшитый токен бота
 BOT_TOKEN = "8668317945:AAGnp69pgaiZRvCUlnFxdUAvxf1S1RsKBh0"
 
 FILAMENT_PRESETS = {
@@ -25,11 +26,11 @@ FILAMENT_PRESETS = {
 
 CONFIG = {
     "power_w": 150.0,              # Мощность принтера (Вт)
-    "electricity_rate": 3.8,       # Тариф (руб/кВт⋅ч)
-    "printer_cost": 68000.0,       # Стоимость принтера (руб)
-    "lifespan_hours": 3500.0,      # Ресурс (часов)
+    "electricity_rate": 5.5,       # Тариф (руб/кВт⋅ч)
+    "printer_cost": 65000.0,       # Стоимость оборудования (руб)
+    "lifespan_hours": 3500.0,      # Ресурс принтера до капремонта (ч)
     "defect_rate_percent": 5.0,    # Запас на брак/поддержки (%)
-    "operator_rate_hour": 0.0    # Стоимость часа ручного труда (руб)
+    "operator_rate_hour": 500.0    # Стоимость часа ручной постобработки (руб)
 }
 
 class StepCalc(StatesGroup):
@@ -52,7 +53,7 @@ def get_plastics_kb() -> InlineKeyboardMarkup:
 def get_price_kb(default_price: float) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=f"Оставить стандартную: {int(default_price)} ₽/кг", callback_data="price_default")]
+            [InlineKeyboardButton(text=f"Оставить: {int(default_price)} ₽/кг", callback_data="price_default")]
         ]
     )
 
@@ -65,12 +66,12 @@ def calculate(weight_g: float, hours: float, post_mins: float, plastic_name: str
     total_cost = plastic_cost + elec_cost + deprec_cost + labor_cost
 
     return (
-        f"📋 <b>Расчет для:</b> <code>{plastic_name}</code> (катушка: {int(spool_price)} ₽/кг)\n"
+        f"📋 <b>Расчет: {plastic_name}</b> ({int(spool_price)} ₽/кг)\n"
         f"⏱ <b>Параметры:</b> {weight_g:.1f} г | {hours:.1f} ч | {int(post_mins)} мин обработки\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🧵 <b>Пластик (+{int(CONFIG['defect_rate_percent'])}% брак):</b> {plastic_cost:.2f} ₽\n"
-        f"⚡ <b>Электричество ({kwh:.2f} кВт⋅ч):</b> {elec_cost:.2f} ₽\n"
-        f"⚙️ <b>Амортизация принтера:</b> {deprec_cost:.2f} ₽\n"
+        f"🧵 <b>Пластик (+{int(CONFIG['defect_rate_percent'])}%):</b> {plastic_cost:.2f} ₽\n"
+        f"⚡ <b>Свет ({kwh:.2f} кВт⋅ч):</b> {elec_cost:.2f} ₽\n"
+        f"⚙️ <b>Амортизация:</b> {deprec_cost:.2f} ₽\n"
         f"🛠 <b>Постобработка:</b> {labor_cost:.2f} ₽\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"💵 <b>Себестоимость:</b> <b>{total_cost:.2f} ₽</b>\n\n"
@@ -80,85 +81,88 @@ def calculate(weight_g: float, hours: float, post_mins: float, plastic_name: str
         f"• Наценка 200% (x3.0): <b>{total_cost * 3:.2f} ₽</b>"
     )
 
-# 1. СТАРТ И НАСТРОЙКИ
 @dp.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
         "👋 <b>Калькулятор себестоимости 3D-печати</b>\n\n"
-        "• Для пошагового расчета отправьте: /calc\n"
-        "• Быстрый расчет строкой: <code>вес время</code> (например: <code>120 4.5</code>)",
+        "• Для пошагового расчета с выбором пластика и цены: /calc\n"
+        "• Для быстрого расчета в одну строку: <code>вес время</code> (например: <code>100 4.5</code>)",
         parse_mode="HTML"
     )
 
 @dp.message(Command("settings"))
 async def cmd_settings(message: Message):
     await message.answer(
-        f"⚙️ <b>Текущие параметры:</b>\n"
+        f"⚙️ <b>Текущие настройки:</b>\n"
         f"• Тариф на свет: {CONFIG['electricity_rate']} ₽/кВт⋅ч\n"
         f"• Мощность принтера: {CONFIG['power_w']} Вт\n"
         f"• Стоимость принтера: {CONFIG['printer_cost']} ₽\n"
-        f"• Ресурс принтера: {CONFIG['lifespan_hours']} ч"
+        f"• Ресурс: {CONFIG['lifespan_hours']} ч\n"
+        f"• Ставка постобработки: {CONFIG['operator_rate_hour']} ₽/час"
     )
 
-# 2. ПОШАГОВЫЙ РАСЧЕТ (/calc)
+# Старт расчета
 @dp.message(Command("calc"))
 async def start_calc(message: Message, state: FSMContext):
     await state.clear()
     await message.answer("1️⃣ Выберите тип пластика:", reply_markup=get_plastics_kb())
     await state.set_state(StepCalc.choosing_plastic)
 
-@dp.callback_query(StepCalc.choosing_plastic, F.data.startswith("mat_"))
+# Выбор типа пластика по кнопке
+@dp.callback_query(F.data.startswith("mat_"))
 async def plastic_chosen(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     mat_key = callback.data.replace("mat_", "")
-    mat_info = FILAMENT_PRESETS[mat_key]
+    mat_info = FILAMENT_PRESETS.get(mat_key, FILAMENT_PRESETS["pla"])
     await state.update_data(plastic_name=mat_info["name"], default_price=mat_info["default_price"])
     
     await callback.message.edit_text(
-        f"Выбран пластик: <b>{mat_info['name']}</b>.\n\n"
+        f"Выбран: <b>{mat_info['name']}</b>.\n\n"
         f"2️⃣ <b>Какая цена катушки за 1 кг (в рублях)?</b>\n"
-        f"Напишите сумму в чат (например: <code>950</code>) или нажмите кнопку ниже:",
+        f"Напишите сумму числом в чат (например: <code>950</code>) или нажмите кнопку ниже:",
         reply_markup=get_price_kb(mat_info["default_price"]),
         parse_mode="HTML"
     )
     await state.set_state(StepCalc.entering_price)
 
-# Вариант А: нажали кнопку цены по умолчанию
-@dp.callback_query(StepCalc.entering_price, F.data == "price_default")
+# Вариант 1: Нажата кнопка со стандартной ценой
+@dp.callback_query(F.data == "price_default")
 async def price_default_chosen(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     data = await state.get_data()
-    spool_price = data["default_price"]
+    spool_price = data.get("default_price", 1400.0)
     await state.update_data(spool_price=spool_price)
     await callback.message.edit_text(
-        f"Цена катушки принята: <b>{int(spool_price)} ₽/кг</b>.\n\n"
+        f"Цена катушки: <b>{int(spool_price)} ₽/кг</b>.\n\n"
         f"3️⃣ Введите <b>вес детали в граммах</b> (с поддержками):",
         parse_mode="HTML"
     )
     await state.set_state(StepCalc.entering_weight)
 
-# Вариант Б: написали свою цену катушки вручную
-@dp.message(StepCalc.entering_price, F.text)
+# Вариант 2: Введена своя цена катушки сообщением
+@dp.message(StepCalc.entering_price)
 async def price_entered_manually(message: Message, state: FSMContext):
-    clean_text = message.text.replace(",", ".").strip()
+    clean = message.text.replace(",", ".").strip()
     try:
-        val = float(clean_text)
+        val = float(clean)
         if val <= 0:
             raise ValueError
         await state.update_data(spool_price=val)
         await message.answer(
-            f"Цена катушки принята: <b>{int(val)} ₽/кг</b>.\n\n"
+            f"Цена катушки: <b>{int(val)} ₽/кг</b>.\n\n"
             f"3️⃣ Введите <b>вес детали в граммах</b> (с поддержками):",
             parse_mode="HTML"
         )
         await state.set_state(StepCalc.entering_weight)
     except ValueError:
-        await message.answer("⚠️ Пожалуйста, введите цену числом (например: <code>950</code> или <code>1600</code>):")
+        await message.answer("⚠️ Введите цену числом (например: <code>1100</code>):")
 
-@dp.message(StepCalc.entering_weight, F.text)
+@dp.message(StepCalc.entering_weight)
 async def weight_entered(message: Message, state: FSMContext):
-    clean_text = message.text.replace(",", ".").strip()
+    clean = message.text.replace(",", ".").strip()
     try:
-        val = float(clean_text)
+        val = float(clean)
         if val <= 0:
             raise ValueError
         await state.update_data(weight=val)
@@ -167,24 +171,24 @@ async def weight_entered(message: Message, state: FSMContext):
     except ValueError:
         await message.answer("⚠️ Введите вес числом больше 0 (например: <code>85</code>):")
 
-@dp.message(StepCalc.entering_time, F.text)
+@dp.message(StepCalc.entering_time)
 async def time_entered(message: Message, state: FSMContext):
-    clean_text = message.text.replace(",", ".").strip()
+    clean = message.text.replace(",", ".").strip()
     try:
-        val = float(clean_text)
+        val = float(clean)
         if val <= 0:
             raise ValueError
         await state.update_data(hours=val)
         await message.answer("5️⃣ Введите время на <b>постобработку в минутах</b> (если нет — напишите <code>0</code>):", parse_mode="HTML")
         await state.set_state(StepCalc.entering_postproc)
     except ValueError:
-        await message.answer("⚠️ Введите время в часах (например: <code>4.5</code>):")
+        await message.answer("⚠️ Введите время в часах (например: <code>4</code> или <code>2.5</code>):")
 
-@dp.message(StepCalc.entering_postproc, F.text)
+@dp.message(StepCalc.entering_postproc)
 async def postproc_entered(message: Message, state: FSMContext):
-    clean_text = message.text.replace(",", ".").strip()
+    clean = message.text.replace(",", ".").strip()
     try:
-        val = float(clean_text)
+        val = float(clean)
         if val < 0:
             raise ValueError
         data = await state.get_data()
@@ -194,14 +198,14 @@ async def postproc_entered(message: Message, state: FSMContext):
             weight_g=data["weight"],
             hours=data["hours"],
             post_mins=val,
-            plastic_name=data["plastic_name"],
-            spool_price=data["spool_price"]
+            plastic_name=data.get("plastic_name", "Пластик"),
+            spool_price=data.get("spool_price", 1400.0)
         )
         await message.answer(res, parse_mode="HTML")
     except ValueError:
         await message.answer("⚠️ Введите количество минут от 0 и выше:")
 
-# 3. БЫСТРЫЙ ВВОД В ОДНУ СТРОКУ (только если не в режиме пошагового ввода)
+# Быстрый ввод в одну строку (срабатывает, если не идет пошаговый диалог)
 @dp.message(F.text.regexp(r"^\s*(\d+(?:[.,]\d+)?)\s+(\d+(?:[.,]\d+)?)(?:\s+(\d+(?:[.,]\d+)?))?\s*$"))
 async def quick_input(message: Message, state: FSMContext):
     current_state = await state.get_state()
@@ -220,7 +224,7 @@ async def quick_input(message: Message, state: FSMContext):
     )
     await message.answer(res, parse_mode="HTML")
 
-# Сервер для Render
+# Микро-сервер для поддержки активности Render
 async def handle_ping(request):
     return web.Response(text="OK")
 
