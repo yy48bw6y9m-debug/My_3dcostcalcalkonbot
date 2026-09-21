@@ -5,11 +5,12 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message
 
+# Токен бота
 BOT_TOKEN = "8668317945:AAGEWGh8BhD7OiD5jR2J-BL0vPq7zWDSAZE"
 
 # Базовые параметры оборудования
 CONFIG = {
-    "power_w": 200.0,              # Мощность принтера (Вт)
+    "power_w": 200.0,              # Средняя мощность принтера (Вт)
     "electricity_rate": 5.5,       # Тариф (руб/кВт⋅ч)
     "printer_cost": 68000.0,       # Стоимость принтера (руб)
     "lifespan_hours": 3500.0,      # Ресурс (часов)
@@ -21,7 +22,7 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 def calculate(spool_price: float, weight_g: float, hours: float, post_mins: float = 0.0) -> str:
-    # 1. Сырье
+    # 1. Сырье с учетом брака
     plastic_cost = (weight_g / 1000.0) * spool_price * (1.0 + CONFIG["defect_rate_percent"] / 100.0)
     # 2. Электроэнергия
     kwh = (CONFIG["power_w"] / 1000.0) * hours
@@ -59,8 +60,8 @@ async def cmd_start(message: Message):
         "Отправьте данные через пробел в формате:\n"
         "<code>цена_катушки вес время [постобработка]</code>\n\n"
         "<b>Примеры:</b>\n"
-        "• <code>1200 85 3.5</code> (катушка 1200 ₽, 85 г, 3.5 часа)\n"
-        "• <code>950 120 4.5 15</code> (катушка 950 ₽, 120 г, 4.5 часа, 15 мин обработка)\n\n"
+        "• <code>865 191 6</code> (катушка 865 ₽, 191 г, 6 часов)\n"
+        "• <code>1200 85 3.5 15</code> (катушка 1200 ₽, 85 г, 3.5 ч, 15 мин обработка)\n\n"
         "⚙️ Параметры оборудования: /settings",
         parse_mode="HTML"
     )
@@ -76,13 +77,12 @@ async def cmd_settings(message: Message):
         f"• Ставка постобработки: {CONFIG['operator_rate_hour']} ₽/час"
     )
 
-# Обработка строки с числами
 @dp.message(F.text)
 async def handle_calc_text(message: Message):
     text = message.text.replace(",", ".").strip()
     parts = text.split()
     
-    # Ожидаем от 3 до 4 чисел: цена, вес, время, [постобработка]
+    # Обрабатываем 3 или 4 числа: цена, вес, время, [постобработка]
     if len(parts) in (3, 4):
         try:
             spool_price = float(parts[0])
@@ -104,15 +104,16 @@ async def handle_calc_text(message: Message):
         "⚠️ <b>Неверный формат ввода.</b>\n\n"
         "Отправьте 3 или 4 числа через пробел:\n"
         "<code>цена_катушки вес время [минуты_обработки]</code>\n\n"
-        "<i>Пример:</i> <code>1400 95 4.5</code>",
+        "<i>Пример:</i> <code>865 191 6</code>",
         parse_mode="HTML"
     )
 
-# Веб-сервер для фоновой работы Render
+# Простой эндпоинт для работы на Render
 async def handle_ping(request):
     return web.Response(text="OK")
 
 async def main():
+    # Запуск фонового веб-сервера
     app = web.Application()
     app.router.add_get("/", handle_ping)
     runner = web.AppRunner(app)
@@ -121,7 +122,12 @@ async def main():
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
     
+    # 🔴 Принудительный сброс чужих вебхуков и подвисших сообщений
+    await bot.delete_webhook(drop_pending_updates=True)
+    
+    # Запуск бота
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
+
