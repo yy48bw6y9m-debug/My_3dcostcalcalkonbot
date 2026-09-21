@@ -14,7 +14,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
 # Токен бота
-BOT_TOKEN = "8668317945:AAGnp69pgaIZRvCUln0H1vS9169aQhB_q-Q"
+BOT_TOKEN = "8668317945:AAGnp69pgaiZRvCUlnFxdUAvxf1S1RsKBh0"
 
 # Базовые пресеты пластиков (цена по умолчанию за 1 кг)
 FILAMENT_PRESETS = {
