@@ -9,9 +9,9 @@ BOT_TOKEN = "8668317945:AAGnp69pgaiZRvCUlnFxdUAvxf1S1RsKBh0"
 
 # Базовые параметры оборудования
 CONFIG = {
-    "power_w": 150.0,              # Мощность принтера (Вт)
+    "power_w": 200.0,              # Мощность принтера (Вт)
     "electricity_rate": 5.5,       # Тариф (руб/кВт⋅ч)
-    "printer_cost": 65000.0,       # Стоимость принтера (руб)
+    "printer_cost": 68000.0,       # Стоимость принтера (руб)
     "lifespan_hours": 3500.0,      # Ресурс (часов)
     "defect_rate_percent": 5.0,    # Брак / продувка / кайма (%)
     "operator_rate_hour": 500.0    # Стоимость часа ручного труда (руб)
