@@ -5,7 +5,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message
 
-BOT_TOKEN = "8668317945:AAGnp69pgaiZRvCUlnFxdUAvxf1S1RsKBh0"
+BOT_TOKEN = "8668317945:AAGEWGh8BhD7OiD5jR2J-BL0vPq7zWDSAZE"
 
 # Базовые параметры оборудования
 CONFIG = {
